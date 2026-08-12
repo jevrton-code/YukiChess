@@ -17,10 +17,36 @@
         <button id="new-game-btn" type="button">Novo jogo</button>
       </div>
 
+      <div class="engine-controls">
+        <label class="engine-toggle">
+          <input type="checkbox" id="vs-engine-toggle" />
+          Jogar contra o Stockfish
+        </label>
+        <label class="engine-field">
+          Você joga:
+          <select id="human-color-select">
+            <option value="White">Brancas</option>
+            <option value="Black">Pretas</option>
+          </select>
+        </label>
+        <label class="engine-field">
+          Força: <span id="elo-value">1500</span>
+          <input type="range" id="elo-slider" min="1320" max="2800" step="20" value="1500" />
+        </label>
+        <button id="hint-btn" type="button">Dica</button>
+      </div>
+      <p id="engine-status-msg" class="engine-status"></p>
+
       <div class="game-area">
         <div class="side-trays">
           <div id="captured-black" class="tray tray-black"></div>
           <div id="captured-white" class="tray tray-white"></div>
+        </div>
+        <div class="eval-bar-wrap">
+          <span id="eval-label" class="eval-label">—</span>
+          <div class="eval-bar">
+            <div id="eval-bar-fill" class="eval-bar-fill"></div>
+          </div>
         </div>
         <div id="board" class="board"></div>
         <div class="history-panel">
@@ -29,6 +55,7 @@
         </div>
       </div>
 
+      <p id="move-quality-msg" class="move-quality"></p>
       <p id="error-msg" class="error"></p>
     </main>
   </body>

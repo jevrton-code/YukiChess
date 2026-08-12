@@ -58,10 +58,100 @@ button:hover {
   background: #3a3a3a;
 }
 
+.engine-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  padding: 0.5rem 0.75rem;
+  background: #2b2b2b;
+  border: 1px solid #444;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.engine-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.engine-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.engine-field select,
+.engine-field input[type="range"] {
+  accent-color: var(--selected);
+}
+
+.engine-status {
+  min-height: 1.2rem;
+  font-size: 0.85rem;
+  color: #d9a441;
+  max-width: 640px;
+  text-align: center;
+}
+
+.move-quality {
+  min-height: 1.2rem;
+  font-weight: 600;
+}
+
+.move-quality.good {
+  color: #6aa84f;
+}
+
+.move-quality.ok {
+  color: #d9a441;
+}
+
+.move-quality.bad {
+  color: #d64545;
+}
+
 .game-area {
   display: flex;
   align-items: stretch;
   gap: 0.75rem;
+}
+
+.eval-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.eval-label {
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 0.75rem;
+  color: #ccc;
+  min-width: 2.5rem;
+  text-align: center;
+}
+
+.eval-bar {
+  position: relative;
+  width: 22px;
+  height: 524px;
+  background: #111;
+  border: 1px solid #444;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.eval-bar-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 50%;
+  background: #f0f0f0;
+  transition: height 0.3s ease;
 }
 
 .side-trays {
@@ -243,6 +333,10 @@ button:hover {
 .square.capturable {
   outline: 4px solid #d64545;
   outline-offset: -4px;
+}
+
+.square.hint {
+  box-shadow: inset 0 0 0 4px #4a90d9;
 }
 
 .square .piece {

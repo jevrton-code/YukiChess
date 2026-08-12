@@ -19,6 +19,19 @@ interface GameState {
   history: string[];
 }
 
+interface EvalDto {
+  score_cp: number | null;
+  mate_in: number | null;
+}
+
+interface HintDto {
+  from: string;
+  to: string;
+  promotion: PieceType | null;
+  score_cp: number | null;
+  mate_in: number | null;
+}
+
 const PROMOTION_CHOICES: PieceType[] = ["Queen", "Rook", "Bishop", "Knight"];
 
 const PIECE_SYMBOLS: Record<ChessColor, Record<PieceType, string>> = {
@@ -49,11 +62,29 @@ let newGameBtn: HTMLButtonElement;
 let capturedBlackEl: HTMLDivElement;
 let capturedWhiteEl: HTMLDivElement;
 let historyEl: HTMLDivElement;
+let vsEngineToggleEl: HTMLInputElement;
+let humanColorSelectEl: HTMLSelectElement;
+let eloSliderEl: HTMLInputElement;
+let eloValueEl: HTMLSpanElement;
+let hintBtnEl: HTMLButtonElement;
+let engineStatusEl: HTMLParagraphElement;
+let evalLabelEl: HTMLSpanElement;
+let evalBarFillEl: HTMLDivElement;
+let moveQualityEl: HTMLParagraphElement;
 
 let currentState: GameState | null = null;
 let selectedSquare: string | null = null;
 let legalTargets: Set<string> = new Set();
 let enPassantCaptureSquare: string | null = null;
+
+let engineAvailable = false;
+let vsEngine = false;
+let humanColor: ChessColor = "White";
+let engineElo = 1500;
+let engineThinking = false;
+let hintMove: { from: string; to: string } | null = null;
+let currentEvalCp: number | null = null;
+let currentMateIn: number | null = null;
 
 function squareName(rank: number, file: number): string {
   return `${FILES[file]}${rank + 1}`;
@@ -82,6 +113,9 @@ function renderBoard(state: GameState) {
       }
       if (name === enPassantCaptureSquare) {
         square.classList.add("capturable");
+      }
+      if (hintMove && (name === hintMove.from || name === hintMove.to)) {
+        square.classList.add("hint");
       }
 
       if (piece) {
@@ -141,6 +175,8 @@ function renderStatus(state: GameState) {
   if (state.game_over) {
     const winnerLabel = state.winner === "White" ? "Brancas" : "Pretas";
     statusEl.textContent = `Fim de jogo! ${winnerLabel} venceram capturando o rei.`;
+  } else if (engineThinking) {
+    statusEl.textContent = "O Stockfish está pensando...";
   } else {
     statusEl.textContent = state.turn === "White" ? "Vez das brancas" : "Vez das pretas";
   }
@@ -152,6 +188,101 @@ function render() {
   renderStatus(currentState);
   renderCaptured(currentState);
   renderHistory(currentState);
+}
+
+function evalToWhitePercent(cp: number | null, mateIn: number | null): number {
+  if (mateIn !== null) {
+    return mateIn > 0 ? 100 : 0;
+  }
+  if (cp === null) return 50;
+  const clamped = Math.max(-800, Math.min(800, cp));
+  return 50 + (clamped / 800) * 50;
+}
+
+function formatEval(cp: number | null, mateIn: number | null): string {
+  if (mateIn !== null) {
+    return mateIn > 0 ? `M${mateIn}` : `-M${Math.abs(mateIn)}`;
+  }
+  if (cp === null) return "—";
+  const pawns = (cp / 100).toFixed(1);
+  return cp > 0 ? `+${pawns}` : pawns;
+}
+
+function renderEvalBar() {
+  const percent = evalToWhitePercent(currentEvalCp, currentMateIn);
+  evalBarFillEl.style.height = `${percent}%`;
+  evalLabelEl.textContent = formatEval(currentEvalCp, currentMateIn);
+}
+
+async function refreshEvaluation() {
+  if (!engineAvailable) return;
+  try {
+    const evalResult = await invoke<EvalDto>("evaluate_position");
+    currentEvalCp = evalResult.score_cp;
+    currentMateIn = evalResult.mate_in;
+    renderEvalBar();
+    engineStatusEl.textContent = "";
+  } catch (err) {
+    engineStatusEl.textContent = String(err);
+  }
+}
+
+// Converte um score (na perspectiva de quem joga naquela posição, padrão UCI,
+// ja normalizado para a perspectiva das brancas pelo backend) para a
+// perspectiva de quem jogou o lance sendo avaliado.
+function toMoverPerspective(color: ChessColor, cp: number | null, mateIn: number | null): number {
+  const sign = color === "White" ? 1 : -1;
+  if (mateIn !== null) {
+    return sign * (mateIn > 0 ? 100000 - mateIn : -100000 - mateIn);
+  }
+  return sign * (cp ?? 0);
+}
+
+function classifyMove(
+  moverColor: ChessColor,
+  cpBefore: number | null,
+  mateBefore: number | null,
+  cpAfter: number | null,
+  mateAfter: number | null,
+) {
+  if (cpBefore === null && mateBefore === null) {
+    moveQualityEl.textContent = "";
+    return;
+  }
+
+  const before = toMoverPerspective(moverColor, cpBefore, mateBefore);
+  const after = toMoverPerspective(moverColor, cpAfter, mateAfter);
+  const loss = before - after;
+
+  let label: string;
+  let tier: "good" | "ok" | "bad";
+  if (loss <= 20) {
+    label = "Ótimo";
+    tier = "good";
+  } else if (loss <= 50) {
+    label = "Bom";
+    tier = "good";
+  } else if (loss <= 120) {
+    label = "Impreciso";
+    tier = "ok";
+  } else if (loss <= 300) {
+    label = "Erro";
+    tier = "bad";
+  } else {
+    label = "Erro grave";
+    tier = "bad";
+  }
+
+  const deltaPawns = (Math.abs(loss) / 100).toFixed(2);
+  moveQualityEl.textContent = `${label} (${loss > 0 ? "-" : "+"}${deltaPawns})`;
+  moveQualityEl.className = `move-quality ${tier}`;
+}
+
+function renderEngineControlsAvailability() {
+  vsEngineToggleEl.disabled = !engineAvailable;
+  hintBtnEl.disabled = !engineAvailable;
+  humanColorSelectEl.disabled = !engineAvailable || !vsEngine;
+  eloSliderEl.disabled = !engineAvailable || !vsEngine;
 }
 
 async function selectSquare(name: string) {
@@ -195,12 +326,42 @@ function pickPromotion(color: ChessColor): Promise<PieceType> {
   });
 }
 
+async function maybeTriggerEngineMove() {
+  if (!engineAvailable || !vsEngine || !currentState || currentState.game_over) return;
+  if (currentState.turn === humanColor) return;
+
+  engineThinking = true;
+  renderStatus(currentState);
+  try {
+    const newState = await invoke<GameState>("engine_move", { elo: engineElo });
+    currentState = newState;
+    hintMove = null;
+    render();
+    await refreshEvaluation();
+  } catch (err) {
+    engineStatusEl.textContent = String(err);
+  } finally {
+    engineThinking = false;
+    render();
+  }
+}
+
 async function attemptMove(from: string, to: string, promotion: PieceType | null) {
+  const moverColor = currentState!.turn;
+  const cpBefore = currentEvalCp;
+  const mateBefore = currentMateIn;
+
   try {
     errorEl.textContent = "";
     const newState = await invoke<GameState>("make_move", { from, to, promotion });
     currentState = newState;
+    hintMove = null;
     render();
+
+    await refreshEvaluation();
+    classifyMove(moverColor, cpBefore, mateBefore, currentEvalCp, currentMateIn);
+
+    await maybeTriggerEngineMove();
   } catch (err) {
     errorEl.textContent = String(err);
     render();
@@ -208,7 +369,8 @@ async function attemptMove(from: string, to: string, promotion: PieceType | null
 }
 
 async function onSquareClick(name: string) {
-  if (!currentState || currentState.game_over) return;
+  if (!currentState || currentState.game_over || engineThinking) return;
+  if (vsEngine && currentState.turn !== humanColor) return;
 
   const [rank, file] = [parseInt(name[1], 10) - 1, FILES.indexOf(name[0])];
   const piece = currentState.board[rank][file];
@@ -250,8 +412,24 @@ async function onSquareClick(name: string) {
 async function startNewGame() {
   clearSelection();
   errorEl.textContent = "";
+  moveQualityEl.textContent = "";
+  engineThinking = false;
   currentState = await invoke<GameState>("new_game");
   render();
+  await refreshEvaluation();
+  await maybeTriggerEngineMove();
+}
+
+async function requestHint() {
+  if (!currentState || currentState.game_over || engineThinking) return;
+  try {
+    errorEl.textContent = "";
+    const hint = await invoke<HintDto>("get_hint");
+    hintMove = { from: hint.from, to: hint.to };
+    render();
+  } catch (err) {
+    errorEl.textContent = String(err);
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -262,13 +440,51 @@ window.addEventListener("DOMContentLoaded", () => {
   capturedBlackEl = document.querySelector<HTMLDivElement>("#captured-black")!;
   capturedWhiteEl = document.querySelector<HTMLDivElement>("#captured-white")!;
   historyEl = document.querySelector<HTMLDivElement>("#history")!;
+  vsEngineToggleEl = document.querySelector<HTMLInputElement>("#vs-engine-toggle")!;
+  humanColorSelectEl = document.querySelector<HTMLSelectElement>("#human-color-select")!;
+  eloSliderEl = document.querySelector<HTMLInputElement>("#elo-slider")!;
+  eloValueEl = document.querySelector<HTMLSpanElement>("#elo-value")!;
+  hintBtnEl = document.querySelector<HTMLButtonElement>("#hint-btn")!;
+  engineStatusEl = document.querySelector<HTMLParagraphElement>("#engine-status-msg")!;
+  evalLabelEl = document.querySelector<HTMLSpanElement>("#eval-label")!;
+  evalBarFillEl = document.querySelector<HTMLDivElement>("#eval-bar-fill")!;
+  moveQualityEl = document.querySelector<HTMLParagraphElement>("#move-quality-msg")!;
 
   newGameBtn.addEventListener("click", () => {
     startNewGame();
   });
 
-  invoke<GameState>("get_state").then((state) => {
+  vsEngineToggleEl.addEventListener("change", () => {
+    vsEngine = vsEngineToggleEl.checked;
+    renderEngineControlsAvailability();
+    maybeTriggerEngineMove();
+  });
+
+  humanColorSelectEl.addEventListener("change", () => {
+    humanColor = humanColorSelectEl.value as ChessColor;
+    maybeTriggerEngineMove();
+  });
+
+  eloSliderEl.addEventListener("input", () => {
+    engineElo = parseInt(eloSliderEl.value, 10);
+    eloValueEl.textContent = String(engineElo);
+  });
+
+  hintBtnEl.addEventListener("click", () => {
+    requestHint();
+  });
+
+  invoke<GameState>("get_state").then(async (state) => {
     currentState = state;
     render();
+
+    engineAvailable = await invoke<boolean>("engine_status");
+    renderEngineControlsAvailability();
+    if (!engineAvailable) {
+      engineStatusEl.textContent =
+        "Stockfish não encontrado. Instale-o (ex.: yay -S stockfish) para habilitar avaliação, dicas e o modo contra o computador.";
+    } else {
+      await refreshEvaluation();
+    }
   });
 });

@@ -64,6 +64,8 @@ pub struct Game {
     // Casa que um peão inimigo pode capturar via en passant no próximo lance.
     en_passant_target: Option<(usize, usize)>,
     history: Vec<String>,
+    // Lances desde a ultima captura ou movimento de peao (usado no FEN para o Stockfish).
+    halfmove_clock: u32,
 }
 
 #[derive(Serialize)]
@@ -126,7 +128,68 @@ impl Game {
             castling: CastlingRights::new(),
             en_passant_target: None,
             history: Vec::new(),
+            halfmove_clock: 0,
         }
+    }
+
+    pub fn is_over(&self) -> bool {
+        self.game_over
+    }
+
+    pub fn to_fen(&self) -> String {
+        let mut ranks = Vec::new();
+        for rank in (0..8).rev() {
+            let mut row = String::new();
+            let mut empty = 0u8;
+            for file in 0..8 {
+                match self.board[rank][file] {
+                    None => empty += 1,
+                    Some(p) => {
+                        if empty > 0 {
+                            row.push_str(&empty.to_string());
+                            empty = 0;
+                        }
+                        row.push(piece_fen_char(p));
+                    }
+                }
+            }
+            if empty > 0 {
+                row.push_str(&empty.to_string());
+            }
+            ranks.push(row);
+        }
+        let placement = ranks.join("/");
+
+        let active = if self.turn == Color::White { "w" } else { "b" };
+
+        let mut castling = String::new();
+        if self.castling.white_king_side {
+            castling.push('K');
+        }
+        if self.castling.white_queen_side {
+            castling.push('Q');
+        }
+        if self.castling.black_king_side {
+            castling.push('k');
+        }
+        if self.castling.black_queen_side {
+            castling.push('q');
+        }
+        if castling.is_empty() {
+            castling.push('-');
+        }
+
+        let en_passant = self
+            .en_passant_target
+            .map(|(r, f)| square_name(r, f))
+            .unwrap_or_else(|| "-".to_string());
+
+        let fullmove = self.history.len() / 2 + 1;
+
+        format!(
+            "{} {} {} {} {} {}",
+            placement, active, castling, en_passant, self.halfmove_clock, fullmove
+        )
     }
 
     pub fn to_dto(&self) -> GameStateDto {
@@ -264,6 +327,12 @@ impl Game {
             promoted_type,
         ));
 
+        if piece.piece_type == PieceType::Pawn || captured.is_some() {
+            self.halfmove_clock = 0;
+        } else {
+            self.halfmove_clock += 1;
+        }
+
         self.board[fr][ff] = None;
         self.board[tr][tf] = Some(Piece {
             color: piece.color,
@@ -330,6 +399,7 @@ impl Game {
 
         self.history
             .push(if kingside { "O-O".into() } else { "O-O-O".into() });
+        self.halfmove_clock += 1;
 
         self.en_passant_target = None;
         self.turn = self.turn.opposite();
@@ -613,6 +683,22 @@ fn piece_letter(piece_type: PieceType) -> &'static str {
         PieceType::Queen => "Q",
         PieceType::King => "K",
         PieceType::Pawn => "",
+    }
+}
+
+fn piece_fen_char(piece: Piece) -> char {
+    let c = match piece.piece_type {
+        PieceType::Pawn => 'p',
+        PieceType::Knight => 'n',
+        PieceType::Bishop => 'b',
+        PieceType::Rook => 'r',
+        PieceType::Queen => 'q',
+        PieceType::King => 'k',
+    };
+    if piece.color == Color::White {
+        c.to_ascii_uppercase()
+    } else {
+        c
     }
 }
 
