@@ -16,6 +16,7 @@ interface GameState {
   captured_white: PieceType[];
   captured_black: PieceType[];
   en_passant_target: string | null;
+  history: string[];
 }
 
 const PROMOTION_CHOICES: PieceType[] = ["Queen", "Rook", "Bishop", "Knight"];
@@ -47,6 +48,7 @@ let errorEl: HTMLParagraphElement;
 let newGameBtn: HTMLButtonElement;
 let capturedBlackEl: HTMLDivElement;
 let capturedWhiteEl: HTMLDivElement;
+let historyEl: HTMLDivElement;
 
 let currentState: GameState | null = null;
 let selectedSquare: string | null = null;
@@ -113,6 +115,28 @@ function renderCaptured(state: GameState) {
   }
 }
 
+function renderHistory(state: GameState) {
+  historyEl.innerHTML = "";
+  for (let i = 0; i < state.history.length; i += 2) {
+    const row = document.createElement("div");
+    row.className = "history-row";
+
+    const number = document.createElement("span");
+    number.className = "history-number";
+    number.textContent = `${i / 2 + 1}.`;
+
+    const white = document.createElement("span");
+    white.textContent = state.history[i] ?? "";
+
+    const black = document.createElement("span");
+    black.textContent = state.history[i + 1] ?? "";
+
+    row.append(number, white, black);
+    historyEl.appendChild(row);
+  }
+  historyEl.scrollTop = historyEl.scrollHeight;
+}
+
 function renderStatus(state: GameState) {
   if (state.game_over) {
     const winnerLabel = state.winner === "White" ? "Brancas" : "Pretas";
@@ -127,6 +151,7 @@ function render() {
   renderBoard(currentState);
   renderStatus(currentState);
   renderCaptured(currentState);
+  renderHistory(currentState);
 }
 
 async function selectSquare(name: string) {
@@ -236,6 +261,7 @@ window.addEventListener("DOMContentLoaded", () => {
   newGameBtn = document.querySelector<HTMLButtonElement>("#new-game-btn")!;
   capturedBlackEl = document.querySelector<HTMLDivElement>("#captured-black")!;
   capturedWhiteEl = document.querySelector<HTMLDivElement>("#captured-white")!;
+  historyEl = document.querySelector<HTMLDivElement>("#history")!;
 
   newGameBtn.addEventListener("click", () => {
     startNewGame();

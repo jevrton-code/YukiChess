@@ -63,6 +63,7 @@ pub struct Game {
     castling: CastlingRights,
     // Casa que um peão inimigo pode capturar via en passant no próximo lance.
     en_passant_target: Option<(usize, usize)>,
+    history: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -74,6 +75,7 @@ pub struct GameStateDto {
     captured_white: Vec<PieceType>,
     captured_black: Vec<PieceType>,
     en_passant_target: Option<String>,
+    history: Vec<String>,
 }
 
 pub struct AppState(pub Mutex<Game>);
@@ -123,6 +125,7 @@ impl Game {
             captured_black: Vec::new(),
             castling: CastlingRights::new(),
             en_passant_target: None,
+            history: Vec::new(),
         }
     }
 
@@ -135,6 +138,7 @@ impl Game {
             captured_white: self.captured_white.clone(),
             captured_black: self.captured_black.clone(),
             en_passant_target: self.en_passant_target.map(|(r, f)| square_name(r, f)),
+            history: self.history.clone(),
         }
     }
 
@@ -250,6 +254,16 @@ impl Game {
             self.board[fr][tf] = None;
         }
 
+        self.history.push(format_move(
+            piece,
+            ff,
+            tr,
+            tf,
+            captured.is_some(),
+            is_en_passant,
+            promoted_type,
+        ));
+
         self.board[fr][ff] = None;
         self.board[tr][tf] = Some(Piece {
             color: piece.color,
@@ -313,6 +327,9 @@ impl Game {
                 self.castling.black_queen_side = false;
             }
         }
+
+        self.history
+            .push(if kingside { "O-O".into() } else { "O-O-O".into() });
 
         self.en_passant_target = None;
         self.turn = self.turn.opposite();
@@ -549,6 +566,53 @@ impl Game {
             f += df;
         }
         Ok(())
+    }
+}
+
+fn format_move(
+    piece: Piece,
+    ff: usize,
+    tr: usize,
+    tf: usize,
+    is_capture: bool,
+    is_en_passant: bool,
+    promoted: Option<PieceType>,
+) -> String {
+    let dest = square_name(tr, tf);
+    let mut s = String::new();
+
+    if piece.piece_type == PieceType::Pawn {
+        if is_capture {
+            s.push((b'a' + ff as u8) as char);
+            s.push('x');
+        }
+        s.push_str(&dest);
+        if let Some(promo) = promoted {
+            s.push('=');
+            s.push_str(piece_letter(promo));
+        }
+        if is_en_passant {
+            s.push_str(" e.p.");
+        }
+    } else {
+        s.push_str(piece_letter(piece.piece_type));
+        if is_capture {
+            s.push('x');
+        }
+        s.push_str(&dest);
+    }
+
+    s
+}
+
+fn piece_letter(piece_type: PieceType) -> &'static str {
+    match piece_type {
+        PieceType::Knight => "N",
+        PieceType::Bishop => "B",
+        PieceType::Rook => "R",
+        PieceType::Queen => "Q",
+        PieceType::King => "K",
+        PieceType::Pawn => "",
     }
 }
 

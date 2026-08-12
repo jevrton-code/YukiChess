@@ -154,6 +154,47 @@ button:hover {
   text-shadow: 0 0 2px #ddd;
 }
 
+.history-panel {
+  width: 190px;
+  height: 524px;
+  display: flex;
+  flex-direction: column;
+  background: #2b2b2b;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.history-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  text-align: center;
+  color: #ccc;
+}
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 0.95rem;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 2rem 1fr 1fr;
+  gap: 0.4rem;
+  padding: 0.15rem 0.25rem;
+  border-radius: 4px;
+}
+
+.history-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.history-number {
+  color: #888;
+}
+
 .square {
   width: 64px;
   height: 64px;
