@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -17,7 +17,7 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum PieceType {
     Pawn,
     Knight,
@@ -33,6 +33,25 @@ pub struct Piece {
     pub piece_type: PieceType,
 }
 
+#[derive(Clone, Copy)]
+struct CastlingRights {
+    white_king_side: bool,
+    white_queen_side: bool,
+    black_king_side: bool,
+    black_queen_side: bool,
+}
+
+impl CastlingRights {
+    fn new() -> Self {
+        CastlingRights {
+            white_king_side: true,
+            white_queen_side: true,
+            black_king_side: true,
+            black_queen_side: true,
+        }
+    }
+}
+
 pub struct Game {
     // board[rank][file], rank 0 = rank "1", file 0 = file "a"
     board: [[Option<Piece>; 8]; 8],
@@ -41,6 +60,9 @@ pub struct Game {
     winner: Option<Color>,
     captured_white: Vec<PieceType>,
     captured_black: Vec<PieceType>,
+    castling: CastlingRights,
+    // Casa que um peão inimigo pode capturar via en passant no próximo lance.
+    en_passant_target: Option<(usize, usize)>,
 }
 
 #[derive(Serialize)]
@@ -51,6 +73,7 @@ pub struct GameStateDto {
     winner: Option<Color>,
     captured_white: Vec<PieceType>,
     captured_black: Vec<PieceType>,
+    en_passant_target: Option<String>,
 }
 
 pub struct AppState(pub Mutex<Game>);
@@ -98,6 +121,8 @@ impl Game {
             winner: None,
             captured_white: Vec::new(),
             captured_black: Vec::new(),
+            castling: CastlingRights::new(),
+            en_passant_target: None,
         }
     }
 
@@ -109,6 +134,7 @@ impl Game {
             winner: self.winner,
             captured_white: self.captured_white.clone(),
             captured_black: self.captured_black.clone(),
+            en_passant_target: self.en_passant_target.map(|(r, f)| square_name(r, f)),
         }
     }
 
@@ -130,15 +156,41 @@ impl Game {
                         continue;
                     }
                 }
-                if self.validate_piece_move(piece, fr, ff, tr, tf).is_ok() {
+                let is_en_passant = piece.piece_type == PieceType::Pawn
+                    && self.en_passant_target == Some((tr, tf));
+                let ok = if is_en_passant {
+                    self.validate_en_passant_move(piece.color, fr, ff, tr, tf)
+                        .is_ok()
+                } else {
+                    self.validate_piece_move(piece, fr, ff, tr, tf).is_ok()
+                };
+                if ok {
                     moves.push(square_name(tr, tf));
                 }
             }
         }
+
+        if piece.piece_type == PieceType::King && ff == 4 {
+            let home_rank = if piece.color == Color::White { 0 } else { 7 };
+            if fr == home_rank {
+                if self.can_castle(piece.color, true) {
+                    moves.push(square_name(home_rank, 6));
+                }
+                if self.can_castle(piece.color, false) {
+                    moves.push(square_name(home_rank, 2));
+                }
+            }
+        }
+
         Ok(moves)
     }
 
-    pub fn make_move(&mut self, from: &str, to: &str) -> Result<(), String> {
+    pub fn make_move(
+        &mut self,
+        from: &str,
+        to: &str,
+        promotion: Option<PieceType>,
+    ) -> Result<(), String> {
         if self.game_over {
             return Err("O jogo já terminou.".into());
         }
@@ -154,25 +206,58 @@ impl Game {
             return Err("Não é a vez dessa cor.".into());
         }
 
+        let home_rank = if piece.color == Color::White { 0 } else { 7 };
+        if piece.piece_type == PieceType::King
+            && fr == home_rank
+            && ff == 4
+            && tr == fr
+            && (tf as i32 - ff as i32).abs() == 2
+        {
+            return self.castle(piece.color, tf);
+        }
+
         if let Some(target) = self.board[tr][tf] {
             if target.color == piece.color {
                 return Err("Não é possível capturar sua própria peça.".into());
             }
         }
 
-        self.validate_piece_move(piece, fr, ff, tr, tf)?;
+        let is_en_passant =
+            piece.piece_type == PieceType::Pawn && self.en_passant_target == Some((tr, tf));
 
-        let captured = self.board[tr][tf];
-        self.board[tr][tf] = Some(piece);
-        self.board[fr][ff] = None;
-
-        // Promoção simples: peão que chega na última fileira vira dama.
-        if piece.piece_type == PieceType::Pawn && (tr == 0 || tr == 7) {
-            self.board[tr][tf] = Some(Piece {
-                color: piece.color,
-                piece_type: PieceType::Queen,
-            });
+        if is_en_passant {
+            self.validate_en_passant_move(piece.color, fr, ff, tr, tf)?;
+        } else {
+            self.validate_piece_move(piece, fr, ff, tr, tf)?;
         }
+
+        let is_promotion = piece.piece_type == PieceType::Pawn && (tr == 0 || tr == 7);
+        let promoted_type = if is_promotion {
+            match promotion {
+                Some(
+                    pt @ (PieceType::Queen | PieceType::Rook | PieceType::Bishop | PieceType::Knight),
+                ) => Some(pt),
+                Some(_) => return Err("Peça de promoção inválida.".into()),
+                None => return Err("Escolha uma peça para a promoção.".into()),
+            }
+        } else {
+            None
+        };
+
+        let mut captured = self.board[tr][tf];
+        if is_en_passant {
+            captured = self.board[fr][tf];
+            self.board[fr][tf] = None;
+        }
+
+        self.board[fr][ff] = None;
+        self.board[tr][tf] = Some(Piece {
+            color: piece.color,
+            piece_type: promoted_type.unwrap_or(piece.piece_type),
+        });
+
+        self.update_castling_rights(piece, fr, ff, tr, tf);
+        self.en_passant_target = Self::compute_en_passant_target(piece, fr, ff, tr);
 
         if let Some(cap) = captured {
             match cap.color {
@@ -190,6 +275,174 @@ impl Game {
         }
 
         Ok(())
+    }
+
+    fn castle(&mut self, color: Color, to_file: usize) -> Result<(), String> {
+        let kingside = to_file == 6;
+        let queenside = to_file == 2;
+        if !kingside && !queenside {
+            return Err("Movimento de roque inválido.".into());
+        }
+        if !self.can_castle(color, kingside) {
+            return Err("O roque não é permitido nessa posição.".into());
+        }
+
+        let rank = if color == Color::White { 0 } else { 7 };
+        let rook_file = if kingside { 7 } else { 0 };
+        let new_king_file = if kingside { 6 } else { 2 };
+        let new_rook_file = if kingside { 5 } else { 3 };
+
+        self.board[rank][4] = None;
+        self.board[rank][rook_file] = None;
+        self.board[rank][new_king_file] = Some(Piece {
+            color,
+            piece_type: PieceType::King,
+        });
+        self.board[rank][new_rook_file] = Some(Piece {
+            color,
+            piece_type: PieceType::Rook,
+        });
+
+        match color {
+            Color::White => {
+                self.castling.white_king_side = false;
+                self.castling.white_queen_side = false;
+            }
+            Color::Black => {
+                self.castling.black_king_side = false;
+                self.castling.black_queen_side = false;
+            }
+        }
+
+        self.en_passant_target = None;
+        self.turn = self.turn.opposite();
+        Ok(())
+    }
+
+    fn can_castle(&self, color: Color, kingside: bool) -> bool {
+        let right_ok = match (color, kingside) {
+            (Color::White, true) => self.castling.white_king_side,
+            (Color::White, false) => self.castling.white_queen_side,
+            (Color::Black, true) => self.castling.black_king_side,
+            (Color::Black, false) => self.castling.black_queen_side,
+        };
+        if !right_ok {
+            return false;
+        }
+
+        let rank = if color == Color::White { 0 } else { 7 };
+        let king_ok = matches!(
+            self.board[rank][4],
+            Some(p) if p.piece_type == PieceType::King && p.color == color
+        );
+        let rook_file = if kingside { 7 } else { 0 };
+        let rook_ok = matches!(
+            self.board[rank][rook_file],
+            Some(p) if p.piece_type == PieceType::Rook && p.color == color
+        );
+        if !king_ok || !rook_ok {
+            return false;
+        }
+
+        let empty_files: &[usize] = if kingside { &[5, 6] } else { &[1, 2, 3] };
+        if empty_files.iter().any(|&f| self.board[rank][f].is_some()) {
+            return false;
+        }
+
+        // O rei não pode estar em xeque, passar por, ou pousar em uma casa atacada.
+        let king_path: &[usize] = if kingside { &[4, 5, 6] } else { &[4, 3, 2] };
+        let opponent = color.opposite();
+        if king_path
+            .iter()
+            .any(|&f| self.is_square_attacked(rank, f, opponent))
+        {
+            return false;
+        }
+
+        true
+    }
+
+    fn is_square_attacked(&self, r: usize, f: usize, by: Color) -> bool {
+        for pr in 0..8 {
+            for pf in 0..8 {
+                if let Some(p) = self.board[pr][pf] {
+                    if p.color != by {
+                        continue;
+                    }
+                    let attacks = if p.piece_type == PieceType::Pawn {
+                        pawn_attacks(p.color, pr, pf, r, f)
+                    } else {
+                        self.validate_piece_move(p, pr, pf, r, f).is_ok()
+                    };
+                    if attacks {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn update_castling_rights(&mut self, piece: Piece, fr: usize, ff: usize, tr: usize, tf: usize) {
+        if piece.piece_type == PieceType::King {
+            match piece.color {
+                Color::White => {
+                    self.castling.white_king_side = false;
+                    self.castling.white_queen_side = false;
+                }
+                Color::Black => {
+                    self.castling.black_king_side = false;
+                    self.castling.black_queen_side = false;
+                }
+            }
+        }
+        self.revoke_corner_right(fr, ff);
+        self.revoke_corner_right(tr, tf);
+    }
+
+    fn revoke_corner_right(&mut self, r: usize, f: usize) {
+        match (r, f) {
+            (0, 0) => self.castling.white_queen_side = false,
+            (0, 7) => self.castling.white_king_side = false,
+            (7, 0) => self.castling.black_queen_side = false,
+            (7, 7) => self.castling.black_king_side = false,
+            _ => {}
+        }
+    }
+
+    fn compute_en_passant_target(
+        piece: Piece,
+        fr: usize,
+        ff: usize,
+        tr: usize,
+    ) -> Option<(usize, usize)> {
+        if piece.piece_type != PieceType::Pawn {
+            return None;
+        }
+        if (tr as i32 - fr as i32).abs() == 2 {
+            let mid = ((fr as i32 + tr as i32) / 2) as usize;
+            Some((mid, ff))
+        } else {
+            None
+        }
+    }
+
+    fn validate_en_passant_move(
+        &self,
+        color: Color,
+        fr: usize,
+        ff: usize,
+        tr: usize,
+        tf: usize,
+    ) -> Result<(), String> {
+        let dir: i32 = if color == Color::White { 1 } else { -1 };
+        let dr = tr as i32 - fr as i32;
+        let df = tf as i32 - ff as i32;
+        if dr == dir && df.abs() == 1 {
+            Ok(())
+        } else {
+            Err("Movimento de en passant inválido.".into())
+        }
     }
 
     fn validate_piece_move(
@@ -299,6 +552,13 @@ impl Game {
     }
 }
 
+fn pawn_attacks(color: Color, fr: usize, ff: usize, tr: usize, tf: usize) -> bool {
+    let dir: i32 = if color == Color::White { 1 } else { -1 };
+    let dr = tr as i32 - fr as i32;
+    let df = tf as i32 - ff as i32;
+    dr == dir && df.abs() == 1
+}
+
 fn parse_square(s: &str) -> Result<(usize, usize), String> {
     let s = s.trim().to_lowercase();
     let bytes = s.as_bytes();
@@ -331,9 +591,14 @@ pub fn new_game(state: State<AppState>) -> GameStateDto {
 }
 
 #[tauri::command]
-pub fn make_move(from: String, to: String, state: State<AppState>) -> Result<GameStateDto, String> {
+pub fn make_move(
+    from: String,
+    to: String,
+    promotion: Option<PieceType>,
+    state: State<AppState>,
+) -> Result<GameStateDto, String> {
     let mut game = state.0.lock().unwrap();
-    game.make_move(&from, &to)?;
+    game.make_move(&from, &to, promotion)?;
     Ok(game.to_dto())
 }
 

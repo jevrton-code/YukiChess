@@ -15,7 +15,10 @@ interface GameState {
   winner: ChessColor | null;
   captured_white: PieceType[];
   captured_black: PieceType[];
+  en_passant_target: string | null;
 }
+
+const PROMOTION_CHOICES: PieceType[] = ["Queen", "Rook", "Bishop", "Knight"];
 
 const PIECE_SYMBOLS: Record<ChessColor, Record<PieceType, string>> = {
   White: {
@@ -48,6 +51,7 @@ let capturedWhiteEl: HTMLDivElement;
 let currentState: GameState | null = null;
 let selectedSquare: string | null = null;
 let legalTargets: Set<string> = new Set();
+let enPassantCaptureSquare: string | null = null;
 
 function squareName(rank: number, file: number): string {
   return `${FILES[file]}${rank + 1}`;
@@ -73,6 +77,9 @@ function renderBoard(state: GameState) {
 
       if (legalTargets.has(name)) {
         square.classList.add(piece ? "capturable" : "legal-move");
+      }
+      if (name === enPassantCaptureSquare) {
+        square.classList.add("capturable");
       }
 
       if (piece) {
@@ -126,12 +133,53 @@ async function selectSquare(name: string) {
   selectedSquare = name;
   errorEl.textContent = "";
   legalTargets = new Set(await invoke<string[]>("legal_moves", { from: name }));
+
+  enPassantCaptureSquare = null;
+  const epTarget = currentState?.en_passant_target ?? null;
+  if (epTarget && legalTargets.has(epTarget)) {
+    const targetFile = epTarget[0];
+    const sourceRank = name[1];
+    enPassantCaptureSquare = `${targetFile}${sourceRank}`;
+  }
+
   render();
 }
 
 function clearSelection() {
   selectedSquare = null;
   legalTargets = new Set();
+  enPassantCaptureSquare = null;
+}
+
+function pickPromotion(color: ChessColor): Promise<PieceType> {
+  return new Promise((resolve) => {
+    const picker = document.createElement("div");
+    picker.className = "promotion-picker";
+    for (const pieceType of PROMOTION_CHOICES) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `promotion-option ${color === "White" ? "white" : "black"}`;
+      btn.textContent = PIECE_SYMBOLS[color][pieceType];
+      btn.addEventListener("click", () => {
+        picker.remove();
+        resolve(pieceType);
+      });
+      picker.appendChild(btn);
+    }
+    boardEl.appendChild(picker);
+  });
+}
+
+async function attemptMove(from: string, to: string, promotion: PieceType | null) {
+  try {
+    errorEl.textContent = "";
+    const newState = await invoke<GameState>("make_move", { from, to, promotion });
+    currentState = newState;
+    render();
+  } catch (err) {
+    errorEl.textContent = String(err);
+    render();
+  }
 }
 
 async function onSquareClick(name: string) {
@@ -160,17 +208,18 @@ async function onSquareClick(name: string) {
   }
 
   const from = selectedSquare;
+  const movingPiece = currentState.board[parseInt(from[1], 10) - 1][FILES.indexOf(from[0])];
+  const targetRank = rank;
   clearSelection();
+  render();
 
-  try {
-    errorEl.textContent = "";
-    const newState = await invoke<GameState>("make_move", { from, to: name });
-    currentState = newState;
-    render();
-  } catch (err) {
-    errorEl.textContent = String(err);
-    render();
+  if (movingPiece?.piece_type === "Pawn" && (targetRank === 0 || targetRank === 7)) {
+    const promotion = await pickPromotion(movingPiece.color);
+    await attemptMove(from, name, promotion);
+    return;
   }
+
+  await attemptMove(from, name, null);
 }
 
 async function startNewGame() {
