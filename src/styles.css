@@ -4,7 +4,6 @@
   --light-square: #f0d9b5;
   --dark-square: #b58863;
   --selected: #6aa84f;
-  --legal-hint: rgba(106, 168, 79, 0.55);
 }
 
 * {
@@ -59,6 +58,52 @@ button:hover {
   background: #3a3a3a;
 }
 
+.game-area {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.side-trays {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 84px;
+}
+
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 2px;
+  min-height: 2.2rem;
+}
+
+.tray-black {
+  align-self: flex-start;
+}
+
+.tray-white {
+  align-self: flex-end;
+  align-content: flex-end;
+}
+
+.captured-piece {
+  font-size: 1.3rem;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.captured-piece.white {
+  color: #fdfdfd;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+}
+
+.captured-piece.black {
+  color: #111;
+  text-shadow: 0 0 2px #999;
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(8, 64px);
@@ -89,6 +134,31 @@ button:hover {
 
 .square.selected {
   outline: 4px solid var(--selected);
+  outline-offset: -4px;
+}
+
+.square.legal-move::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.square.light.legal-move::after {
+  background: rgba(20, 20, 20, 0.55);
+}
+
+.square.dark.legal-move::after {
+  background: rgba(245, 245, 245, 0.75);
+}
+
+.square.capturable {
+  outline: 4px solid #d64545;
   outline-offset: -4px;
 }
 

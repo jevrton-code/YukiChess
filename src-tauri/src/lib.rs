@@ -11,7 +11,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             chess::get_state,
             chess::new_game,
-            chess::make_move
+            chess::make_move,
+            chess::legal_moves
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

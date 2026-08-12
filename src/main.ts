@@ -13,6 +13,8 @@ interface GameState {
   turn: ChessColor;
   game_over: boolean;
   winner: ChessColor | null;
+  captured_white: PieceType[];
+  captured_black: PieceType[];
 }
 
 const PIECE_SYMBOLS: Record<ChessColor, Record<PieceType, string>> = {
@@ -40,9 +42,12 @@ let boardEl: HTMLDivElement;
 let statusEl: HTMLParagraphElement;
 let errorEl: HTMLParagraphElement;
 let newGameBtn: HTMLButtonElement;
+let capturedBlackEl: HTMLDivElement;
+let capturedWhiteEl: HTMLDivElement;
 
 let currentState: GameState | null = null;
 let selectedSquare: string | null = null;
+let legalTargets: Set<string> = new Set();
 
 function squareName(rank: number, file: number): string {
   return `${FILES[file]}${rank + 1}`;
@@ -65,6 +70,11 @@ function renderBoard(state: GameState) {
       }
 
       const piece = state.board[rank][file];
+
+      if (legalTargets.has(name)) {
+        square.classList.add(piece ? "capturable" : "legal-move");
+      }
+
       if (piece) {
         const pieceEl = document.createElement("span");
         pieceEl.className = `piece ${piece.color === "White" ? "white" : "black"}`;
@@ -75,6 +85,24 @@ function renderBoard(state: GameState) {
       square.addEventListener("click", () => onSquareClick(name));
       boardEl.appendChild(square);
     }
+  }
+}
+
+function renderCaptured(state: GameState) {
+  capturedBlackEl.innerHTML = "";
+  for (const pieceType of state.captured_black) {
+    const span = document.createElement("span");
+    span.className = "captured-piece black";
+    span.textContent = PIECE_SYMBOLS.Black[pieceType];
+    capturedBlackEl.appendChild(span);
+  }
+
+  capturedWhiteEl.innerHTML = "";
+  for (const pieceType of state.captured_white) {
+    const span = document.createElement("span");
+    span.className = "captured-piece white";
+    span.textContent = PIECE_SYMBOLS.White[pieceType];
+    capturedWhiteEl.appendChild(span);
   }
 }
 
@@ -91,6 +119,19 @@ function render() {
   if (!currentState) return;
   renderBoard(currentState);
   renderStatus(currentState);
+  renderCaptured(currentState);
+}
+
+async function selectSquare(name: string) {
+  selectedSquare = name;
+  errorEl.textContent = "";
+  legalTargets = new Set(await invoke<string[]>("legal_moves", { from: name }));
+  render();
+}
+
+function clearSelection() {
+  selectedSquare = null;
+  legalTargets = new Set();
 }
 
 async function onSquareClick(name: string) {
@@ -101,21 +142,25 @@ async function onSquareClick(name: string) {
 
   if (!selectedSquare) {
     if (piece && piece.color === currentState.turn) {
-      selectedSquare = name;
-      errorEl.textContent = "";
-      render();
+      await selectSquare(name);
     }
     return;
   }
 
   if (selectedSquare === name) {
-    selectedSquare = null;
+    clearSelection();
     render();
     return;
   }
 
+  // Clicar em outra peça própria troca a seleção em vez de tentar um movimento inválido.
+  if (piece && piece.color === currentState.turn) {
+    await selectSquare(name);
+    return;
+  }
+
   const from = selectedSquare;
-  selectedSquare = null;
+  clearSelection();
 
   try {
     errorEl.textContent = "";
@@ -129,7 +174,7 @@ async function onSquareClick(name: string) {
 }
 
 async function startNewGame() {
-  selectedSquare = null;
+  clearSelection();
   errorEl.textContent = "";
   currentState = await invoke<GameState>("new_game");
   render();
@@ -140,6 +185,8 @@ window.addEventListener("DOMContentLoaded", () => {
   statusEl = document.querySelector<HTMLParagraphElement>("#status-msg")!;
   errorEl = document.querySelector<HTMLParagraphElement>("#error-msg")!;
   newGameBtn = document.querySelector<HTMLButtonElement>("#new-game-btn")!;
+  capturedBlackEl = document.querySelector<HTMLDivElement>("#captured-black")!;
+  capturedWhiteEl = document.querySelector<HTMLDivElement>("#captured-white")!;
 
   newGameBtn.addEventListener("click", () => {
     startNewGame();

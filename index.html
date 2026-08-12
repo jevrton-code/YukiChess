@@ -17,7 +17,13 @@
         <button id="new-game-btn" type="button">Novo jogo</button>
       </div>
 
-      <div id="board" class="board"></div>
+      <div class="game-area">
+        <div class="side-trays">
+          <div id="captured-black" class="tray tray-black"></div>
+          <div id="captured-white" class="tray tray-white"></div>
+        </div>
+        <div id="board" class="board"></div>
+      </div>
 
       <p id="error-msg" class="error"></p>
     </main>

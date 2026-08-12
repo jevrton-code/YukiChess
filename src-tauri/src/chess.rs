@@ -39,6 +39,8 @@ pub struct Game {
     turn: Color,
     game_over: bool,
     winner: Option<Color>,
+    captured_white: Vec<PieceType>,
+    captured_black: Vec<PieceType>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +49,8 @@ pub struct GameStateDto {
     turn: Color,
     game_over: bool,
     winner: Option<Color>,
+    captured_white: Vec<PieceType>,
+    captured_black: Vec<PieceType>,
 }
 
 pub struct AppState(pub Mutex<Game>);
@@ -92,6 +96,8 @@ impl Game {
             turn: Color::White,
             game_over: false,
             winner: None,
+            captured_white: Vec::new(),
+            captured_black: Vec::new(),
         }
     }
 
@@ -101,7 +107,35 @@ impl Game {
             turn: self.turn,
             game_over: self.game_over,
             winner: self.winner,
+            captured_white: self.captured_white.clone(),
+            captured_black: self.captured_black.clone(),
         }
+    }
+
+    pub fn legal_moves(&self, from: &str) -> Result<Vec<String>, String> {
+        let (fr, ff) = parse_square(from)?;
+        let piece = match self.board[fr][ff] {
+            Some(p) => p,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut moves = Vec::new();
+        for tr in 0..8 {
+            for tf in 0..8 {
+                if (tr, tf) == (fr, ff) {
+                    continue;
+                }
+                if let Some(target) = self.board[tr][tf] {
+                    if target.color == piece.color {
+                        continue;
+                    }
+                }
+                if self.validate_piece_move(piece, fr, ff, tr, tf).is_ok() {
+                    moves.push(square_name(tr, tf));
+                }
+            }
+        }
+        Ok(moves)
     }
 
     pub fn make_move(&mut self, from: &str, to: &str) -> Result<(), String> {
@@ -141,6 +175,10 @@ impl Game {
         }
 
         if let Some(cap) = captured {
+            match cap.color {
+                Color::White => self.captured_white.push(cap.piece_type),
+                Color::Black => self.captured_black.push(cap.piece_type),
+            }
             if cap.piece_type == PieceType::King {
                 self.game_over = true;
                 self.winner = Some(piece.color);
@@ -275,6 +313,10 @@ fn parse_square(s: &str) -> Result<(usize, usize), String> {
     Ok(((rank - b'1') as usize, (file - b'a') as usize))
 }
 
+fn square_name(rank: usize, file: usize) -> String {
+    format!("{}{}", (b'a' + file as u8) as char, rank + 1)
+}
+
 #[tauri::command]
 pub fn get_state(state: State<AppState>) -> GameStateDto {
     let game = state.0.lock().unwrap();
@@ -293,4 +335,10 @@ pub fn make_move(from: String, to: String, state: State<AppState>) -> Result<Gam
     let mut game = state.0.lock().unwrap();
     game.make_move(&from, &to)?;
     Ok(game.to_dto())
+}
+
+#[tauri::command]
+pub fn legal_moves(from: String, state: State<AppState>) -> Result<Vec<String>, String> {
+    let game = state.0.lock().unwrap();
+    game.legal_moves(&from)
 }
