@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YukiChess</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <h1>YukiChess</h1>
+
+      <div class="status-bar">
+        <p id="status-msg">Vez das brancas</p>
+        <button id="new-game-btn" type="button">Novo jogo</button>
+      </div>
+
+      <div id="board" class="board"></div>
+
+      <p id="error-msg" class="error"></p>
+    </main>
+  </body>
+</html>
